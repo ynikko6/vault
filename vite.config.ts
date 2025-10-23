@@ -10,4 +10,7 @@ export default defineConfig({
       "@": path.resolve(__dirname, "./src"),
     },
   },
+  optimizeDeps: {
+    exclude: ['pocketbase'], // Exclude the pocketbase binary from Vite processing
+  },
 })

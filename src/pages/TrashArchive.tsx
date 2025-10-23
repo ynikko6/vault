@@ -1,8 +1,9 @@
 import React, { useMemo, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { EyeIcon, RotateCcwIcon, TrashIcon, FileIcon, ImageIcon, XIcon, CheckSquareIcon, SquareIcon, FilterIcon } from "lucide-react"
-import { useFileSystem, ManagedFile } from "@/services/filesys-store"
+import { EyeIcon, RotateCcwIcon, TrashIcon, FileIcon, ImageIcon, FolderIcon, XIcon, CheckSquareIcon, SquareIcon, FilterIcon } from "lucide-react"
+import { usePocketBase } from "@/services/pocketbase-store"
+import type { ManagedFile } from "@/services/pocketbase-store"
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuCheckboxItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuItem } from "@/components/ui/dropdown-menu"
 import { AlertDialog, AlertDialogTrigger, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction } from "@/components/ui/alert-dialog"
 
@@ -16,7 +17,7 @@ function formatBytes(bytes: number) {
 }
 
 export default function TrashArchive() {
-  const { trash, setTrash, setFiles } = useFileSystem()
+  const { trash, setTrash, restoreFromTrash: restoreFromTrashPB, deleteFromTrashPermanently: deleteFromTrashPermanentlyPB } = usePocketBase()
 
   const [searchQuery, setSearchQuery] = useState("")
   const [typeFilters, setTypeFilters] = useState<string[]>([])
@@ -27,6 +28,7 @@ export default function TrashArchive() {
     const name = f.name.toLowerCase()
     const ext = name.includes(".") ? name.split(".").pop()! : ""
     const mime = (f.type || "").toLowerCase()
+    if (mime === "folder") return "folder"
     if (ext === "jpg" || ext === "jpeg" || mime.startsWith("image/jpeg")) return "jpg"
     if (ext === "png" || mime.startsWith("image/png")) return "png"
     if (ext === "gif" || mime.startsWith("image/gif")) return "gif"
@@ -66,19 +68,27 @@ export default function TrashArchive() {
     setTrash(prev => prev.map(it => ids.includes(it.id) ? { ...it, selected: !allSelected } : it))
   }
 
-  const deleteSelected = () => {
+  const deleteSelected = async () => {
     const toDelete = trash.filter(it => it.selected).map(it => it.id)
-    // Revoke object URLs to free memory
-    trash.forEach(it => { if (it.selected && it.url.startsWith("blob:")) { try { URL.revokeObjectURL(it.url) } catch {} } })
-    setTrash(prev => prev.filter(it => !toDelete.includes(it.id)))
-    if (previewTrashId && toDelete.includes(previewTrashId)) setPreviewTrashId(null)
+    try {
+      for (const id of toDelete) {
+        await deleteFromTrashPermanentlyPB(id)
+      }
+      if (previewTrashId && toDelete.includes(previewTrashId)) setPreviewTrashId(null)
+    } catch (error) {
+      console.error('Error deleting items from trash:', error)
+      alert('Error deleting items from trash. Please try again.')
+    }
   }
 
-  const restore = (item: ManagedFile) => {
-    // Move the item out of trash back to files (My Vault)
-    setTrash(prev => prev.filter(it => it.id !== item.id))
-    setFiles(prev => [{ ...item, selected: false }, ...prev])
-    if (previewTrashId === item.id) setPreviewTrashId(null)
+  const restore = async (item: ManagedFile) => {
+    try {
+      await restoreFromTrashPB(item.id)
+      if (previewTrashId === item.id) setPreviewTrashId(null)
+    } catch (error) {
+      console.error('Error restoring item from trash:', error)
+      alert('Error restoring item from trash. Please try again.')
+    }
   }
 
   return (
@@ -186,7 +196,9 @@ export default function TrashArchive() {
                     )}
                   </button>
                   <div className="flex items-center gap-2 truncate">
-                    {it.type.startsWith("image/") ? (
+                    {it.type === "folder" ? (
+                      <FolderIcon className="h-4 w-4 transition-transform group-hover:scale-110" />
+                    ) : it.type.startsWith("image/") ? (
                       <ImageIcon className="h-4 w-4 transition-transform group-hover:scale-110" />
                     ) : (
                       <FileIcon className="h-4 w-4 transition-transform group-hover:scale-110" />
@@ -228,7 +240,9 @@ export default function TrashArchive() {
                   <span className="text-muted-foreground"> · {formatBytes(previewTrash.size)}</span>
                 )}
               </div>
-              {previewTrash.type.startsWith("image/") ? (
+              {previewTrash.type === "folder" ? (
+                <div className="text-sm text-muted-foreground">Folder contents can’t be previewed here.</div>
+              ) : previewTrash.type.startsWith("image/") ? (
                 <img src={previewTrash.url} alt={previewTrash.name} className="max-h-64 w-full rounded object-contain animate-in fade-in-0 duration-200" />
               ) : previewTrash.type.startsWith("text/") || previewTrash.type.includes("svg") ? (
                 <iframe

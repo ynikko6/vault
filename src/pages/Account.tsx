@@ -6,14 +6,23 @@ import { Card } from "@/components/ui/card"
 import { Separator } from "@/components/ui/separator"
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar"
 import { UserCircleIcon, CameraIcon } from "lucide-react"
+import { useAuth } from "@/contexts/AuthContext"
+import { pb } from "@/lib/pocketbase"
 
 export default function AccountPage() {
-  const [name, setName] = useState<string>(() => localStorage.getItem("user_name") || "vault")
-  const [avatar, setAvatar] = useState<string>(() => localStorage.getItem("user_avatar") || "/avatars/shadcn.jpg")
-  const email = useMemo(() => localStorage.getItem("auth_email") || "m@example.com", [])
-  const password = useMemo(() => localStorage.getItem("auth_password") || "", [])
-  const [showPassword, setShowPassword] = useState(false)
+  const { user } = useAuth()
+  const [name, setName] = useState<string>("")
+  const [avatar, setAvatar] = useState<string>("")
+  const [isUpdating, setIsUpdating] = useState(false)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
+
+  // Initialize user data when user is loaded
+  useEffect(() => {
+    if (user) {
+      setName(user.name || user.email?.split('@')[0] || "User")
+      setAvatar(user.avatar ? pb.files.getUrl(user, user.avatar) : "")
+    }
+  }, [user])
 
   const handleAvatarPick = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -26,10 +35,29 @@ export default function AccountPage() {
     reader.readAsDataURL(file)
   }
 
-  const handleSave = () => {
-    localStorage.setItem("user_name", name)
-    localStorage.setItem("user_avatar", avatar)
-    alert("Profile updated.")
+  const handleSave = async () => {
+    if (!user) return
+    
+    setIsUpdating(true)
+    try {
+      const formData = new FormData()
+      formData.append('name', name)
+      
+      // If avatar is a data URL (new upload), convert to file
+      if (avatar && avatar.startsWith('data:')) {
+        const response = await fetch(avatar)
+        const blob = await response.blob()
+        formData.append('avatar', blob, 'avatar.jpg')
+      }
+      
+      await pb.collection('users').update(user.id, formData)
+      alert("Profile updated successfully!")
+    } catch (error) {
+      console.error('Failed to update profile:', error)
+      alert("Failed to update profile. Please try again.")
+    } finally {
+      setIsUpdating(false)
+    }
   }
 
   return (
@@ -44,7 +72,9 @@ export default function AccountPage() {
           <div className="flex items-center gap-4">
             <Avatar className="h-16 w-16 rounded-lg">
               <AvatarImage src={avatar} alt={name} />
-              <AvatarFallback className="rounded-lg">CN</AvatarFallback>
+              <AvatarFallback className="rounded-lg">
+                {name ? name.charAt(0).toUpperCase() : user?.email?.charAt(0).toUpperCase() || "U"}
+              </AvatarFallback>
             </Avatar>
             <div className="flex flex-col gap-2">
               <Button variant="outline" size="sm" onClick={() => fileInputRef.current?.click()}>
@@ -65,7 +95,9 @@ export default function AccountPage() {
             <Label htmlFor="displayName">Display Name</Label>
             <Input id="displayName" value={name} onChange={(e) => setName(e.target.value)} />
             <div>
-              <Button onClick={handleSave} className="mt-2">Save Changes</Button>
+              <Button onClick={handleSave} disabled={isUpdating} className="mt-2">
+                {isUpdating ? "Saving..." : "Save Changes"}
+              </Button>
             </div>
           </div>
         </div>
@@ -74,15 +106,12 @@ export default function AccountPage() {
       <Card className="p-4 lg:p-6">
         <div className="grid w-full max-w-md gap-3">
           <Label htmlFor="email">Email</Label>
-          <Input id="email" value={email} readOnly />
-          <Label htmlFor="password" className="mt-4">Password</Label>
-          <div className="flex items-center gap-2">
-            <Input id="password" type={showPassword ? "text" : "password"} value={password} readOnly />
-            <Button variant="outline" size="sm" onClick={() => setShowPassword((s) => !s)}>
-              {showPassword ? "Hide" : "Show"}
-            </Button>
-          </div>
-          <p className="text-xs text-muted-foreground mt-2">Credentials are stored locally for demo purposes.</p>
+          <Input id="email" value={user?.email || ""} readOnly />
+          <Label htmlFor="userId" className="mt-4">User ID</Label>
+          <Input id="userId" value={user?.id || ""} readOnly />
+          <p className="text-xs text-muted-foreground mt-2">
+            Account created: {user?.created ? new Date(user.created).toLocaleDateString() : "Unknown"}
+          </p>
         </div>
       </Card>
     </div>

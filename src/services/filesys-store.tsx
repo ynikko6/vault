@@ -171,3 +171,7 @@ export function useFileSystem() {
   if (!ctx) throw new Error("useFileSystem must be used within FileSystemProvider")
   return ctx
 }
+
+// Compatibility: forward to PocketBase store
+import { usePocketBase } from "./pocketbase-store"
+export { usePocketBase }

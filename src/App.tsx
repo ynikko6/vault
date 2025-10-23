@@ -5,6 +5,7 @@ import { ModeToggle } from "@/components/mode-toggle";
 import { LoginForm } from "@/components/login-form";
 import { SignupForm } from "@/components/signup-form";
 import { AppSidebar } from "@/components/app-sidebar";
+import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import {
   SidebarInset,
   SidebarProvider,
@@ -25,7 +26,7 @@ import SharedWithMe from "@/pages/SharedWithMe";
 import Favorites from "@/pages/Favorites";
 import TrashArchive from "@/pages/TrashArchive";
 import Workspaces from "@/pages/Workspaces";
-import { FileSystemProvider } from "@/services/filesys-store";
+import { PocketBaseProvider } from "@/services/pocketbase-store";
 import ColleaguesPage from "@/pages/Colleagues";
 import Recents from "@/pages/Recents";
 import SettingsPage from "@/pages/Settings";
@@ -33,11 +34,11 @@ import HelpDocs from "@/pages/HelpDocs";
 import Search from "@/pages/Search";
 import AccountPage from "@/pages/Account";
 
-function App() {
-  const [isLoggedIn, setIsLoggedIn] = useState(false);
+function AppContent() {
+  const { user, logout } = useAuth();
   const [isLogin, setIsLogin] = useState(true);
 
-  if (isLoggedIn) {
+  if (user) {
     const location = useLocation();
     const pageTitle = location.pathname.startsWith("/files")
        ? "My Vault"
@@ -65,9 +66,9 @@ function App() {
 
     return (
       <ThemeProvider defaultTheme="dark" storageKey="vite-ui-theme">
-        <FileSystemProvider>
+        <PocketBaseProvider>
           <SidebarProvider>
-            <AppSidebar onLogout={() => setIsLoggedIn(false)} />
+            <AppSidebar onLogout={logout} />
             <SidebarInset>
               <header className="flex h-16 shrink-0 items-center gap-2 transition-[width,height] ease-linear group-has-[[data-collapsible=icon]]/sidebar-wrapper:h-12">
                 <div className="flex items-center gap-2 px-4">
@@ -87,24 +88,12 @@ function App() {
                 </div>
               </header>
               <div className="flex flex-1 flex-col">
-                <Routes>
-                  <Route path="/" element={<Navigate to="/files" replace />} />
-                  <Route path="/files" element={<MyFiles />} />
-                  <Route path="/shared" element={<SharedWithMe />} />
-                  <Route path="/favorites" element={<Favorites />} />
-                  <Route path="/trash" element={<TrashArchive />} />
-                  <Route path="/workspaces" element={<Workspaces />} />
-                  <Route path="/team" element={<ColleaguesPage />} />
-                  <Route path="/recents" element={<Recents />} />
-                  <Route path="/settings" element={<SettingsPage />} />
-                  <Route path="/help" element={<HelpDocs />} />
-                  <Route path="/search" element={<Search />} />
-                  <Route path="/account" element={<AccountPage />} />
-                </Routes>
+                {/* Wrap all routes with FileSystemProvider for compatibility */}
+                <RoutesWrapper />
               </div>
             </SidebarInset>
           </SidebarProvider>
-        </FileSystemProvider>
+        </PocketBaseProvider>
         <div style={{
           position: "fixed",
           top: 16,
@@ -132,7 +121,7 @@ function App() {
           <div className="flex flex-1 items-center justify-center">
             <div className="w-full max-w-xs">
               {isLogin ? (
-                <LoginForm onSignupClick={() => setIsLogin(false)} onLogin={() => setIsLoggedIn(true)} />
+                <LoginForm onSignupClick={() => setIsLogin(false)} onLogin={() => {}} />
               ) : (
                 <SignupForm onSigninClick={() => setIsLogin(true)} />
               )}
@@ -156,6 +145,33 @@ function App() {
         <ModeToggle />
       </div>
     </ThemeProvider>
+  );
+}
+
+function RoutesWrapper() {
+  return (
+    <Routes>
+      <Route path="/" element={<Navigate to="/files" replace />} />
+      <Route path="/files" element={<MyFiles />} />
+      <Route path="/shared" element={<SharedWithMe />} />
+      <Route path="/favorites" element={<Favorites />} />
+      <Route path="/trash" element={<TrashArchive />} />
+      <Route path="/workspaces" element={<Workspaces />} />
+      <Route path="/team" element={<ColleaguesPage />} />
+      <Route path="/recents" element={<Recents />} />
+      <Route path="/settings" element={<SettingsPage />} />
+      <Route path="/help" element={<HelpDocs />} />
+      <Route path="/search" element={<Search />} />
+      <Route path="/account" element={<AccountPage />} />
+    </Routes>
+  );
+}
+
+function App() {
+  return (
+    <AuthProvider>
+      <AppContent />
+    </AuthProvider>
   );
 }
 

@@ -24,14 +24,23 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
 } from "@/components/ui/sidebar"
+import { useAuth } from "@/contexts/AuthContext"
+import { pb } from "@/lib/pocketbase"
 
 export function AppSidebar({ onLogout, ...props }: React.ComponentProps<typeof Sidebar> & { onLogout?: () => void }) {
+  const { user: authUser } = useAuth()
+  
   const user = React.useMemo(() => {
-    const name = localStorage.getItem("user_name") || "vault"
-    const email = localStorage.getItem("auth_email") || "m@example.com"
-    const avatar = localStorage.getItem("user_avatar") || "/avatars/shadcn.jpg"
-    return { name, email, avatar }
-  }, [])
+    if (!authUser) {
+      return { name: "Guest", email: "", avatar: "" }
+    }
+    
+    return {
+      name: authUser.name || authUser.email?.split('@')[0] || "User",
+      email: authUser.email || "",
+      avatar: authUser.avatar ? pb.files.getUrl(authUser, authUser.avatar) : ""
+    }
+  }, [authUser])
 
   const data = {
     user,

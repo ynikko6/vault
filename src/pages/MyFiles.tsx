@@ -1,5 +1,5 @@
 import React, { useCallback, useMemo, useRef, useState } from "react"
-import { useFileSystem } from "@/services/filesys-store"
+import { usePocketBase } from "@/services/pocketbase-store"
 import {
   TrashIcon,
   EyeIcon,
@@ -84,7 +84,20 @@ function formatDateTime(ts: number | null | undefined) {
 }
 
 export default function MyFiles() {
-  const { files, folders, setFiles, setFolders, setTrash } = useFileSystem()
+  const { files, folders, setFiles, setFolders, setTrash, isLoading, uploadFile, 
+    createFolder: createFolderPB,
+    renameFile: renameFilePB,
+    toggleFileFavorite: toggleFileFavoritePB,
+    deleteFile: deleteFilePB,
+    moveFile: moveFilePB,
+    renameFolder: renameFolderPB,
+    toggleFolderFavorite: toggleFolderFavoritePB,
+    moveFolder: moveFolderPB,
+    deleteFolderCascade: deleteFolderCascadePB,
+    moveFileToTrash: moveFileToTrashPB,
+    moveFolderToTrash: moveFolderToTrashPB,
+    compressFolderToZip: compressFolderToZipPB,
+  } = usePocketBase()
   const [currentFolderId, setCurrentFolderId] = useState<string | null>(null) // null = root (My Drive)
   const [previewId, setPreviewId] = useState<string | null>(null)
   const [newFolderName, setNewFolderName] = useState("")
@@ -148,25 +161,17 @@ export default function MyFiles() {
     return base.filter((f) => f.name.toLowerCase().includes(q))
   }, [currentFiles, searchQuery, typeFilters])
 
-  const handleAddFiles = useCallback((list: FileList | File[]) => {
+  const handleAddFiles = useCallback(async (list: FileList | File[]) => {
     const arr = Array.from(list)
-    const newItems: ManagedFile[] = arr.map((f) => ({
-      id: `${f.name}-${f.lastModified}-${Math.random().toString(36).slice(2)}`,
-      name: f.name,
-      size: f.size,
-      type: f.type,
-      url: URL.createObjectURL(f),
-      lastModified: f.lastModified,
-      folderId: currentFolderId,
-      selected: false,
-      favorite: false,
-      createdAt: Date.now(),
-      openedAt: null,
-      nameModifiedAt: null,
-    }))
-    setFiles((prev) => [...newItems, ...prev])
-    if (newItems.length) setPreviewId(newItems[0].id)
-  }, [currentFolderId])
+    
+    for (const f of arr) {
+      try {
+        await uploadFile(f, currentFolderId || undefined)
+      } catch (error) {
+        console.error(`Failed to upload file ${f.name}:`, error)
+      }
+    }
+  }, [currentFolderId, uploadFile])
 
   const onDrop = useCallback((e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault()
@@ -180,16 +185,9 @@ export default function MyFiles() {
     e.preventDefault()
   }
 
-  const createFolder = () => {
+  const createFolder = async () => {
     const name = (newFolderName || "New Folder").trim()
-    const folder: Folder = {
-      id: `fld-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-      name,
-      parentId: currentFolderId,
-      selected: false,
-      favorite: false,
-    }
-    setFolders((prev) => [folder, ...prev])
+    await createFolderPB(name, currentFolderId)
     setNewFolderName("")
   }
 
@@ -218,26 +216,15 @@ export default function MyFiles() {
     return ids
   }
 
-  const deleteFolder = (id: string) => {
+  const deleteFolder = async (id: string) => {
     const ids = getDescendantFolderIds(id)
     const filesInFolders = files.filter((f) => f.folderId && ids.has(f.folderId))
     const needsConfirm = filesInFolders.length > 0 || ids.size > 1
     if (needsConfirm) {
-      const ok = window.confirm(`Delete folder and all contents? (${filesInFolders.length} file(s), ${Math.max(ids.size - 1, 0)} subfolder(s))`)
+      const ok = window.confirm(`Move folder and all contents to trash? (${filesInFolders.length} file(s), ${Math.max(ids.size - 1, 0)} subfolder(s))`)
       if (!ok) return
     }
-    // Revoke object URLs only if no other file references the same URL
-    const totalUrlCount = new Map<string, number>()
-    files.forEach((f) => totalUrlCount.set(f.url, (totalUrlCount.get(f.url) ?? 0) + 1))
-    const deleteUrlCount = new Map<string, number>()
-    filesInFolders.forEach((f) => deleteUrlCount.set(f.url, (deleteUrlCount.get(f.url) ?? 0) + 1))
-    deleteUrlCount.forEach((delCount, url) => {
-      const total = totalUrlCount.get(url) ?? 0
-      if (delCount >= total) URL.revokeObjectURL(url)
-    })
-
-    setFiles((prev) => prev.filter((f) => !(f.folderId && ids.has(f.folderId))))
-    setFolders((prev) => prev.filter((f) => !ids.has(f.id)))
+    await moveFolderToTrashPB(id)
     if (previewId && filesInFolders.some((f) => f.id === previewId)) setPreviewId(null)
   }
 
@@ -267,7 +254,7 @@ export default function MyFiles() {
     setFolders((prev) => prev.map((f) => f.parentId === currentFolderId ? { ...f, selected: !allSelected } : f))
   }
 
-  const deleteSelected = () => {
+  const deleteSelected = async () => {
     const selectedFiles = currentFiles.filter((f) => f.selected)
     const selectedFolders = childFolders.filter((f) => f.selected)
 
@@ -279,49 +266,46 @@ export default function MyFiles() {
 
     const filesFromFolders = files.filter((f) => f.folderId && foldersToDelete.has(f.folderId))
     if (selectedFolders.length > 0) {
-      const ok = window.confirm(`Delete ${selectedFolders.length} folder(s) and ${filesFromFolders.length} file(s) within them?`)
+      const ok = window.confirm(`Move ${selectedFolders.length} folder(s) and ${filesFromFolders.length} file(s) within them to trash?`)
       if (!ok) return
     }
 
-    // Move selected files to trash (do not revoke URLs)
-    if (selectedFiles.length > 0) {
-      setTrash((prev) => [
-        ...selectedFiles.map((f) => ({ ...f, selected: false })),
-        ...prev,
-      ])
-    }
+    try {
+      // Compute selected folder ids for exclusion
+      const selectedFolderIds = new Set(selectedFolders.map(f => f.id))
 
-    // Revoke object URLs only for files deleted due to folder deletion
-    const totalUrlCount = new Map<string, number>()
-    files.forEach((f) => totalUrlCount.set(f.url, (totalUrlCount.get(f.url) ?? 0) + 1))
-    const deletingFromFolders = [...filesFromFolders]
-    const deleteUrlCount = new Map<string, number>()
-    deletingFromFolders.forEach((f) => deleteUrlCount.set(f.url, (deleteUrlCount.get(f.url) ?? 0) + 1))
-    deleteUrlCount.forEach((delCount, url) => {
-      const total = totalUrlCount.get(url) ?? 0
-      if (delCount >= total) URL.revokeObjectURL(url)
-    })
+      // Move selected files to trash, excluding those within selected folders to avoid duplicates
+      for (const file of selectedFiles) {
+        if (!file.folderId || !selectedFolderIds.has(file.folderId)) {
+          await moveFileToTrashPB(file.id)
+        }
+      }
 
-    setFiles((prev) => prev.filter((f) => {
-      if (f.folderId && foldersToDelete.has(f.folderId)) return false
-      if (f.folderId === currentFolderId && f.selected) return false
-      return true
-    }))
-    setFolders((prev) => prev.filter((f) => !foldersToDelete.has(f.id)))
+      // Move selected folders to trash (this will also handle files within them)
+      for (const folder of selectedFolders) {
+        await moveFolderToTrashPB(folder.id)
+      }
 
-    if (previewId) {
-      const movedOrDeleted = [...selectedFiles, ...filesFromFolders].some((f) => f.id === previewId)
-      if (movedOrDeleted) setPreviewId(null)
+      if (previewId) {
+        const movedOrDeleted = [...selectedFiles, ...filesFromFolders].some((f) => f.id === previewId)
+        if (movedOrDeleted) setPreviewId(null)
+      }
+    } catch (error) {
+      console.error('Error moving items to trash:', error)
+      alert('Error moving items to trash. Please try again.')
     }
   }
 
-  const deleteOne = (id: string) => {
+  const deleteOne = async (id: string) => {
     const f = files.find((x) => x.id === id)
     if (!f) return
-    // Move to trash instead of revoking URL
-    setTrash((prev) => [{ ...f, selected: false }, ...prev])
-    setFiles((prev) => prev.filter((x) => x.id !== id))
-    if (previewId === id) setPreviewId(null)
+    try {
+      await moveFileToTrashPB(id)
+      if (previewId === id) setPreviewId(null)
+    } catch (error) {
+      console.error('Error moving file to trash:', error)
+      alert('Error moving file to trash. Please try again.')
+    }
   }
 
   const downloadFile = async (id: string) => {
@@ -456,7 +440,7 @@ export default function MyFiles() {
       }
 
       const zipBytes = concat([concat(fileParts), central, endRecord])
-      const zipBlob = new Blob([zipBytes], { type: "application/zip" })
+      const zipBlob = new Blob([zipBytes as BlobPart], { type: "application/zip" })
       const url = URL.createObjectURL(zipBlob)
 
       setFiles((prev) => prev.map((x) => x.id === f.id ? { ...x, url, size: zipBlob.size, lastModified: Date.now() } : x))
@@ -484,21 +468,32 @@ export default function MyFiles() {
     const f = files.find((x) => x.id === id)
     setTargetFolderId(f ? f.folderId : null)
   }
-  const commitMove = () => {
+  const commitMove = async () => {
     if (!movingFileId) return
     const dest = targetFolderId ?? null
+    // Optimistic UI update
     setFiles((prev) => prev.map((f) => f.id === movingFileId ? { ...f, folderId: dest } : f))
     if (previewId === movingFileId && dest !== currentFolderId) setPreviewId(null)
+    // Persist to PocketBase
+    await moveFilePB(movingFileId, dest)
     setMovingFileId(null)
   }
   const cancelMove = () => setMovingFileId(null)
-  const removeFromFolder = (id: string) => {
+  const removeFromFolder = async (id: string) => {
+    // Optimistic UI update
     setFiles((prev) => prev.map((f) => f.id === id ? { ...f, folderId: null } : f))
     if (previewId === id && currentFolderId !== null) setPreviewId(null)
+    // Persist to PocketBase
+    await moveFilePB(id, null)
   }
 
-  const toggleFavorite = (id: string) => {
-    setFiles((prev) => prev.map((f) => f.id === id ? { ...f, favorite: !f.favorite } : f))
+  const toggleFavorite = async (id: string) => {
+    const f = files.find((x) => x.id === id)
+    if (!f) return
+    // Optimistic UI update
+    setFiles((prev) => prev.map((x) => x.id === id ? { ...x, favorite: !x.favorite } : x))
+    // Persist to PocketBase
+    await toggleFileFavoritePB(id, !f.favorite)
   }
 
   const extractZip = (id: string) => {
@@ -580,18 +575,20 @@ export default function MyFiles() {
     setMovingFileId(null)
     setInfoOpenId(null)
   }
-  const commitRename = () => {
+  const commitRename = async () => {
     if (!renamingFileId) return
     const val = renameValue.trim()
     if (!val) return
-    setFiles((prev) => prev.map((f) => f.id === renamingFileId ? { ...f, name: val, nameModifiedAt: Date.now() } : f))
+    await renameFilePB(renamingFileId, val)
     setRenamingFileId(null)
   }
   const cancelRename = () => setRenamingFileId(null)
 
   // Folder actions
-  const toggleFolderFavorite = (id: string) => {
-    setFolders((prev) => prev.map((f) => f.id === id ? { ...f, favorite: !f.favorite } : f))
+  const toggleFolderFavorite = async (id: string) => {
+    const fld = folders.find((x) => x.id === id)
+    if (!fld) return
+    await toggleFolderFavoritePB(id, !fld.favorite)
   }
 
   const beginFolderRename = (id: string) => {
@@ -600,11 +597,11 @@ export default function MyFiles() {
     setRenameFolderValue(fld?.name ?? "")
     setMovingFolderId(null)
   }
-  const commitFolderRename = () => {
+  const commitFolderRename = async () => {
     if (!renamingFolderId) return
     const val = renameFolderValue.trim()
     if (!val) return
-    setFolders((prev) => prev.map((f) => f.id === renamingFolderId ? { ...f, name: val } : f))
+    await renameFolderPB(renamingFolderId, val)
     setRenamingFolderId(null)
   }
   const cancelFolderRename = () => setRenamingFolderId(null)
@@ -615,15 +612,9 @@ export default function MyFiles() {
     setTargetParentId(fld ? fld.parentId : null)
     setRenamingFolderId(null)
   }
-  const commitFolderMove = () => {
+  const commitFolderMove = async () => {
     if (!movingFolderId) return
-    const dest = targetParentId ?? null
-    const forbidden = getDescendantFolderIds(movingFolderId)
-    if (dest && forbidden.has(dest)) {
-      alert("Cannot move a folder into itself or its descendants.")
-      return
-    }
-    setFolders((prev) => prev.map((f) => f.id === movingFolderId ? { ...f, parentId: dest } : f))
+    await moveFolderPB(movingFolderId, targetParentId || null)
     setMovingFolderId(null)
   }
   const cancelFolderMove = () => setMovingFolderId(null)
@@ -632,54 +623,13 @@ export default function MyFiles() {
     setFolders((prev) => prev.map((f) => f.id === id ? { ...f, parentId: null } : f))
   }
 
-  const compressFolderToZip = (id: string) => {
-    const root = folders.find((x) => x.id === id)
-    if (!root) return
-    const now = Date.now()
-    const name = `${root.name}.zip`
-
-    // Collect all descendant folders and files
-    const descIds = getDescendantFolderIds(root.id)
-    const items = files.filter((f) => f.folderId && descIds.has(f.folderId))
-
-    // Build relative path segments from the root folder to each file's folder
-    const entries = items.map((f) => {
-      const segs: string[] = []
-      let cur = f.folderId
-      while (cur && cur !== root.id) {
-        const ff = folders.find((x) => x.id === cur)
-        if (!ff) break
-        segs.push(ff.name)
-        cur = ff.parentId
-      }
-      segs.reverse()
-      return { fileId: f.id, path: segs }
-    })
-
-    // Use total size as a display hint (not actual compressed size)
-    const totalSize = items.reduce((acc, it) => acc + it.size, 0)
-
-    // Create a virtual ZIP file entry with metadata
-    const blob = new Blob([], { type: "application/zip" })
-    const url = URL.createObjectURL(blob)
-    const zipFile: ManagedFile = {
-      id: `zip-${now}-${Math.random().toString(36).slice(2)}`,
-      name,
-      size: totalSize,
-      type: "application/zip",
-      url,
-      lastModified: now,
-      folderId: root.parentId,
-      selected: false,
-      favorite: false,
-      createdAt: now,
-      openedAt: null,
-      nameModifiedAt: null,
-      archiveOfFolderId: root.id,
-      archiveEntries: entries,
+  const compressFolderToZip = async (id: string) => {
+    try {
+      await compressFolderToZipPB(id)
+    } catch (error) {
+      console.error('Failed to compress folder:', error)
+      alert('Failed to compress folder. Please try again.')
     }
-
-    setFiles((prev) => [zipFile, ...prev])
   }
 
   const openInfo = (id: string) => {

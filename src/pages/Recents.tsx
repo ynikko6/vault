@@ -1,11 +1,12 @@
 import React, { useMemo, useState } from "react"
-import { useFileSystem, ManagedFile } from "@/services/filesys-store"
+import { usePocketBase } from "@/services/pocketbase-store"
+import type { ManagedFile } from "@/services/pocketbase-store"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { ClockIcon, FileIcon, SearchIcon } from "lucide-react"
 
 export default function Recents() {
-  const { files, setFiles } = useFileSystem()
+  const { files, setFiles } = usePocketBase()
   const [query, setQuery] = useState("")
 
   const recents = useMemo(() => {

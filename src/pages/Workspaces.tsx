@@ -22,7 +22,8 @@ import {
   XIcon,
   ArrowLeftIcon,
 } from "lucide-react"
-import { useFileSystem, ManagedFile, Folder } from "@/services/filesys-store"
+import { usePocketBase } from "@/services/pocketbase-store"
+import type { ManagedFile, Folder } from "@/services/pocketbase-store"
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu"
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog"
@@ -57,7 +58,7 @@ function collectDescendantFolderIds(all: Folder[], parentId: string): string[] {
 }
 
 export default function Workspaces() {
-  const { files, folders, setFiles, setFolders, trash, setTrash } = useFileSystem()
+  const { files, folders, setFiles, setFolders, trash, setTrash, toggleFileFavorite: toggleFileFavoritePB, moveFileToTrash: moveFileToTrashPB, moveFolderToTrash: moveFolderToTrashPB } = usePocketBase()
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string | null>(null)
   const [viewMode, setViewMode] = useState<"grid" | "detail">("grid")
   const [searchQuery, setSearchQuery] = useState("")
@@ -117,26 +118,24 @@ export default function Workspaces() {
     }
   }
 
-  const removeWorkspace = (id: string) => {
+  const removeWorkspace = async (id: string) => {
     const ws = folders.find(f => f.id === id)
     if (!ws) return
-    const ok = confirm(`Delete workspace "${ws.name}"? Files move to Trash; folders are removed.`)
+    const ok = confirm(`Move workspace "${ws.name}" to trash?`)
     if (!ok) return
 
-    const descendants = collectDescendantFolderIds(folders, id)
-    const toRemove = new Set<string>([id, ...descendants])
+    try {
+      await moveFolderToTrashPB(id)
 
-    const filesToTrash = files.filter(f => f.folderId && toRemove.has(f.folderId))
-
-    setTrash(prev => [...filesToTrash.map(f => ({ ...f, selected: false })), ...prev])
-    setFiles(prev => prev.filter(f => !(f.folderId && toRemove.has(f.folderId))))
-    setFolders(prev => prev.filter(f => !toRemove.has(f.id)))
-
-    if (selectedWorkspaceId === id) {
-      setSelectedWorkspaceId(null)
-      setSelectedFolderId(null)
-      setPreviewId(null)
-      setViewMode("grid")
+      if (selectedWorkspaceId === id) {
+        setSelectedWorkspaceId(null)
+        setSelectedFolderId(null)
+        setPreviewId(null)
+        setViewMode("grid")
+      }
+    } catch (error) {
+      console.error('Error moving workspace to trash:', error)
+      alert('Error moving workspace to trash. Please try again.')
     }
   }
 
@@ -157,16 +156,25 @@ export default function Workspaces() {
     a.remove()
   }
 
-  const deleteOne = (id: string) => {
+  const deleteOne = async (id: string) => {
     const f = files.find(x => x.id === id)
     if (!f) return
-    setFiles(prev => prev.filter(x => x.id !== id))
-    setTrash(prev => [{ ...f, selected: false }, ...prev])
-    if (previewId === id) setPreviewId(null)
+    try {
+      await moveFileToTrashPB(id)
+      if (previewId === id) setPreviewId(null)
+    } catch (error) {
+      console.error('Error moving file to trash:', error)
+      alert('Error moving file to trash. Please try again.')
+    }
   }
 
-  const toggleFavorite = (id: string) => {
-    setFiles(prev => prev.map(f => f.id === id ? { ...f, favorite: !f.favorite } : f))
+  const toggleFavorite = async (id: string) => {
+    const f = files.find(x => x.id === id)
+    if (!f) return
+    // Optimistic UI
+    setFiles(prev => prev.map(x => x.id === id ? { ...x, favorite: !x.favorite } : x))
+    // Persist to PocketBase
+    await toggleFileFavoritePB(id, !f.favorite)
   }
 
   const openRenameFile = (id: string) => {
@@ -251,25 +259,23 @@ export default function Workspaces() {
     setEditingFolderName("")
   }
 
-  const removeFolder = (id: string) => {
+  const removeFolder = async (id: string) => {
     const f = folders.find(x => x.id === id)
     if (!f) return
-    const ok = confirm(`Delete folder "${f.name}"? Files move to Trash; folders are removed.`)
+    const ok = confirm(`Move folder "${f.name}" and all its contents to trash?`)
     if (!ok) return
 
-    const descendants = collectDescendantFolderIds(folders, id)
-    const toRemove = new Set<string>([id, ...descendants])
+    try {
+      await moveFolderToTrashPB(id)
 
-    const filesToTrash = files.filter(x => x.folderId && toRemove.has(x.folderId))
-
-    setTrash(prev => [...filesToTrash.map(x => ({ ...x, selected: false })), ...prev])
-    setFiles(prev => prev.filter(x => !(x.folderId && toRemove.has(x.folderId))))
-    setFolders(prev => prev.filter(x => !toRemove.has(x.id)))
-
-    if (selectedFolderId && toRemove.has(selectedFolderId)) {
-      const parentId = f.parentId
-      setSelectedFolderId(parentId)
-      setPreviewId(null)
+      if (selectedFolderId === id) {
+        const parentId = f.parentId
+        setSelectedFolderId(parentId)
+        setPreviewId(null)
+      }
+    } catch (error) {
+      console.error('Error moving folder to trash:', error)
+      alert('Error moving folder to trash. Please try again.')
     }
   }
 

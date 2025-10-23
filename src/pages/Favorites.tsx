@@ -1,7 +1,8 @@
 import React, { useMemo, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { EyeIcon, DownloadIcon, StarIcon, FileIcon, ImageIcon, FolderIcon, XIcon, CheckSquareIcon, SquareIcon, StarOffIcon, FilterIcon, ChevronLeftIcon } from "lucide-react"
-import { useFileSystem, ManagedFile, Folder } from "@/services/filesys-store"
+import { usePocketBase } from "@/services/pocketbase-store"
+import type { ManagedFile, Folder } from "@/services/pocketbase-store"
 import { Input } from "@/components/ui/input"
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuCheckboxItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuItem } from "@/components/ui/dropdown-menu"
 
@@ -17,14 +18,14 @@ function formatBytes(bytes: number) {
 type FavItem = { kind: "file"; file: ManagedFile } | { kind: "folder"; folder: Folder }
 
 export default function Favorites() {
-  const { files, folders, setFiles, setFolders } = useFileSystem()
+  const { files, folders, setFiles, setFolders, toggleFileFavorite: toggleFileFavoritePB, toggleFolderFavorite: toggleFolderFavoritePB } = usePocketBase()
 
   const items: FavItem[] = useMemo(() => {
     const favFiles = files.filter((f) => f.favorite)
     const favFolders = folders.filter((f) => f.favorite)
     return [
-      ...favFolders.map((folder) => ({ kind: "folder", folder } as FavItem)),
-      ...favFiles.map((file) => ({ kind: "file", file } as FavItem)),
+      ...favFolders.map((folder) => ({ kind: "folder" as const, folder })),
+      ...favFiles.map((file) => ({ kind: "file" as const, file })),
     ]
   }, [files, folders])
 
@@ -91,15 +92,24 @@ export default function Favorites() {
     setFolders((prev) => prev.map((f) => folderIds.includes(f.id) ? { ...f, selected: !allSelected } : f))
   }
 
-  const removeSelectedFromFavorites = () => {
+  const removeSelectedFromFavorites = async () => {
     const fileIds = filteredItems.filter(it => it.kind === "file" && it.file.selected).map(it => it.file.id)
     const folderIds = filteredItems.filter(it => it.kind === "folder" && it.folder.selected).map(it => it.folder.id)
     if (preview && ((preview.kind === "file" && fileIds.includes(preview.id)) || (preview.kind === "folder" && folderIds.includes(preview.id)))) {
       setPreview(null)
     }
+    // Optimistic updates
     setFiles((prev) => prev.map((f) => fileIds.includes(f.id) ? { ...f, favorite: false, selected: false } : f))
     setFolders((prev) => prev.map((f) => folderIds.includes(f.id) ? { ...f, favorite: false, selected: false } : f))
+    // Persist to PocketBase
+    for (const id of fileIds) {
+      await toggleFileFavoritePB(id, false)
+    }
+    for (const id of folderIds) {
+      await toggleFolderFavoritePB(id, false)
+    }
   }
+
 
   const download = async (id: string) => {
     const f = files.find((x) => x.id === id)
@@ -224,7 +234,7 @@ export default function Favorites() {
       ])
 
       const zipBytes = concat([concat(fileParts), central, endRecord])
-      const zipBlob = new Blob([zipBytes], { type: "application/zip" })
+      const zipBlob = new Blob([zipBytes.buffer as ArrayBuffer], { type: "application/zip" })
       const url = URL.createObjectURL(zipBlob)
 
       setFiles((prev) => prev.map((x) => x.id === f.id ? { ...x, url, size: zipBlob.size, lastModified: Date.now() } : x))

@@ -3,7 +3,8 @@ import { Button } from "@/components/ui/button"
 import { EyeIcon, DownloadIcon, FileIcon, ImageIcon, XIcon, CheckSquareIcon, SquareIcon, PlusIcon, TrashIcon, FilterIcon, ShareIcon } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuCheckboxItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuItem } from "@/components/ui/dropdown-menu"
-import { useFileSystem, ManagedFile } from "@/services/filesys-store"
+import { usePocketBase } from "@/services/pocketbase-store"
+import type { ManagedFile } from "@/services/pocketbase-store"
 import { AlertDialog, AlertDialogTrigger, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction } from "@/components/ui/alert-dialog"
 
 function formatBytes(bytes: number) {
@@ -98,7 +99,7 @@ export default function SharedWithMe() {
 
   const [previewId, setPreviewId] = useState<string | null>(null)
   const previewFile = useMemo(() => items.find((i) => i.id === previewId) || null, [items, previewId])
-  const { setFiles } = useFileSystem()
+  const { setFiles } = usePocketBase()
 
   const download = (id: string) => {
     const it = items.find((i) => i.id === id)

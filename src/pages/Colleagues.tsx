@@ -5,18 +5,19 @@ import { Label } from "@/components/ui/label"
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover"
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu"
 import { UsersIcon, MailIcon, UserPlusIcon, TrashIcon, MoreVerticalIcon, FilterIcon, Share2Icon, FolderIcon, FileIcon } from "lucide-react"
-import { useFileSystem, ManagedFile, Colleague, WorkspaceInvite, ShareEntry } from "@/services/filesys-store"
+import { usePocketBase } from "@/services/pocketbase-store"
+import type { ManagedFile, Colleague, WorkspaceInvite, ShareEntry } from "@/services/pocketbase-store"
 
 export default function ColleaguesPage() {
-  const { files, folders, colleagues, setColleagues, shares, setShares, workspaceInvites, setWorkspaceInvites } = useFileSystem() as {
+
+  const { files, folders, colleagues, addColleagueFriend, removeColleague, createShares, inviteToWorkspace } = usePocketBase() as {
     files: ManagedFile[]
     folders: { id: string; name: string; parentId?: string | null }[]
     colleagues: Colleague[]
-    setColleagues: React.Dispatch<React.SetStateAction<Colleague[]>>
-    shares: ShareEntry[]
-    setShares: React.Dispatch<React.SetStateAction<ShareEntry[]>>
-    workspaceInvites: WorkspaceInvite[]
-    setWorkspaceInvites: React.Dispatch<React.SetStateAction<WorkspaceInvite[]>>
+    addColleagueFriend: (email: string, name?: string) => Promise<void>
+    removeColleague: (email: string) => Promise<void>
+    createShares: (entries: ShareEntry[]) => Promise<void>
+    inviteToWorkspace: (email: string, role?: "Member" | "Viewer") => Promise<void>
   }
 
   const [query, setQuery] = useState("")
@@ -31,16 +32,11 @@ export default function ColleaguesPage() {
   const isValidEmail = (e: string) => /.+@.+\..+/.test(e)
   const [newFriendName, setNewFriendName] = useState("")
 
-  const addFriend = () => {
+  const addFriend = async () => {
     const email = searchEmail.trim()
     if (!isValidEmail(email)) return
     const name = newFriendName.trim() || email.split("@")[0]
-    // If already exists, set to Friend
-    setColleagues(prev => {
-      const exists = prev.find(c => c.email.toLowerCase() === email.toLowerCase())
-      if (exists) return prev.map(c => c.email.toLowerCase() === email.toLowerCase() ? { ...c, status: "Friend", name } : c)
-      return [{ email, name, status: "Friend" }, ...prev]
-    })
+    await addColleagueFriend(email, name)
     setSearchEmail(""); setNewFriendName(""); setSearchOpen(false)
   }
 
@@ -70,32 +66,28 @@ export default function ColleaguesPage() {
   }, [folders])
 
   const toggleSel = (map: ShareSelection, id: string, setter: (v: ShareSelection) => void) => setter({ ...map, [id]: !map[id] })
-  const confirmShare = () => {
+  const confirmShare = async () => {
     const email = shareForEmail
     if (!email) return
     const chosenFileIds = Object.keys(shareFilesSel).filter(id => shareFilesSel[id])
     const chosenFolderIds = Object.keys(shareFoldersSel).filter(id => shareFoldersSel[id])
     if (chosenFileIds.length === 0 && chosenFolderIds.length === 0) return
-    setShares(prev => [
-      ...prev,
+    const entries: ShareEntry[] = [
       ...chosenFileIds.map(id => ({ itemId: id, itemType: "file", sharedWithEmail: email } as ShareEntry)),
       ...chosenFolderIds.map(id => ({ itemId: id, itemType: "folder", sharedWithEmail: email } as ShareEntry)),
-    ])
-    // reset
+    ]
+    await createShares(entries)
     setShareForEmail(null)
     setShareFilesSel({})
     setShareFoldersSel({})
   }
 
-  const inviteToWorkspace = (email: string) => {
-    const entry: WorkspaceInvite = { email, role: "Member" }
-    setWorkspaceInvites(prev => {
-      // Avoid duplicates
-      const exists = prev.find(w => w.email.toLowerCase() === email.toLowerCase())
-      if (exists) return prev
-      return [entry, ...prev]
-    })
+  const handleInviteToWorkspace = async (email: string) => {
+    await inviteToWorkspace(email)
   }
+
+
+
 
   return (
     <div className="flex w-full flex-1 flex-col gap-4 p-4 animate-in fade-in-0 duration-150">
@@ -162,10 +154,10 @@ export default function ColleaguesPage() {
                       <DropdownMenuItem onClick={() => { setShareForEmail(c.email) }}>
                         <Share2Icon className="mr-2 h-4 w-4" /> Share Files/Folders
                       </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => inviteToWorkspace(c.email)}>
+                      <DropdownMenuItem onClick={() => handleInviteToWorkspace(c.email)}>
                         <FolderIcon className="mr-2 h-4 w-4" /> Invite to Workspace
                       </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => setColleagues(prev => prev.filter(x => x.email !== c.email))}>
+                      <DropdownMenuItem onClick={async () => { if (!confirm('Remove this colleague?')) return; await removeColleague(c.email) }}>
                         <TrashIcon className="mr-2 h-4 w-4" /> Remove Friend
                       </DropdownMenuItem>
                     </DropdownMenuContent>
@@ -173,6 +165,11 @@ export default function ColleaguesPage() {
                 </div>
               </div>
             ))}
+          </div>
+        )}
+        {filtered.length > 0 && (
+          <div className="px-3 py-2 text-xs text-muted-foreground">
+            Showing {filtered.length} {filtered.length === 1 ? 'colleague' : 'colleagues'}
           </div>
         )}
       </div>
