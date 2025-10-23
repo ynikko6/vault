@@ -1,9 +1,9 @@
-import React, { useEffect, useMemo, useRef, useState } from "react"
+import React, { useEffect, useRef, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card } from "@/components/ui/card"
-import { Separator } from "@/components/ui/separator"
+
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar"
 import { UserCircleIcon, CameraIcon } from "lucide-react"
 import { useAuth } from "@/contexts/AuthContext"

@@ -1,4 +1,3 @@
-import React from "react"
 import { HelpCircleIcon, ExternalLinkIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"

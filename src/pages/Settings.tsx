@@ -1,4 +1,3 @@
-import React from "react"
 import { usePocketBase } from "@/services/pocketbase-store"
 import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"

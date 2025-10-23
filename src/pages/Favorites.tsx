@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react"
+import { useMemo, useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { EyeIcon, DownloadIcon, StarIcon, FileIcon, ImageIcon, FolderIcon, XIcon, CheckSquareIcon, SquareIcon, StarOffIcon, FilterIcon, ChevronLeftIcon } from "lucide-react"
 import { usePocketBase } from "@/services/pocketbase-store"
@@ -76,7 +76,59 @@ export default function Favorites() {
     if (!preview || preview.kind !== "folder") return null
     return folders.find((f) => f.id === preview.id) || null
   }, [preview, folders])
+  // text preview state
+  const [previewText, setPreviewText] = useState<string | null>(null)
+  const [previewLoading, setPreviewLoading] = useState(false)
+  const [previewError, setPreviewError] = useState<string | null>(null)
 
+  const isTextFile = (f: ManagedFile) => {
+    const name = (f.name || "").toLowerCase()
+    return (
+      (f.type || "").startsWith("text/") ||
+      (f.type || "").includes("svg") ||
+      name.endsWith(".txt") ||
+      name.endsWith(".md") ||
+      name.endsWith(".json") ||
+      name.endsWith(".csv") ||
+      name.endsWith(".log") ||
+      name.endsWith(".env") ||
+      name.endsWith(".ini") ||
+      name.endsWith(".yaml") ||
+      name.endsWith(".yml") ||
+      name.endsWith(".xml") ||
+      name.endsWith(".js") ||
+      name.endsWith(".ts") ||
+      name.endsWith(".tsx") ||
+      name.endsWith(".jsx")
+    )
+  }
+
+  useEffect(() => {
+    if (!previewFile || !isTextFile(previewFile)) {
+      setPreviewText(null)
+      setPreviewError(null)
+      setPreviewLoading(false)
+      return
+    }
+    let cancelled = false
+    setPreviewLoading(true)
+    setPreviewError(null)
+    fetch(previewFile.url)
+      .then(async (res) => {
+        if (!res.ok) throw new Error(`Failed to fetch: ${res.status}`)
+        const text = await res.text()
+        if (!cancelled) setPreviewText(text)
+      })
+      .catch((err) => {
+        if (!cancelled) setPreviewError(err?.message || "Failed to load preview")
+      })
+      .finally(() => {
+        if (!cancelled) setPreviewLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [previewFile])
   const toggleSelectFile = (id: string) => {
     setFiles((prev) => prev.map((f) => f.id === id ? { ...f, selected: !f.selected } : f))
   }
@@ -93,8 +145,8 @@ export default function Favorites() {
   }
 
   const removeSelectedFromFavorites = async () => {
-    const fileIds = filteredItems.filter(it => it.kind === "file" && it.file.selected).map(it => it.file.id)
-    const folderIds = filteredItems.filter(it => it.kind === "folder" && it.folder.selected).map(it => it.folder.id)
+    const fileIds = filteredItems.filter((it): it is { kind: "file"; file: ManagedFile } => it.kind === "file" && it.file.selected).map(it => it.file.id)
+    const folderIds = filteredItems.filter((it): it is { kind: "folder"; folder: Folder } => it.kind === "folder" && it.folder.selected).map(it => it.folder.id)
     if (preview && ((preview.kind === "file" && fileIds.includes(preview.id)) || (preview.kind === "folder" && folderIds.includes(preview.id)))) {
       setPreview(null)
     }
@@ -334,7 +386,7 @@ export default function Favorites() {
                 <div className="p-4 text-sm text-muted-foreground">{searchQuery ? "No matching items." : "No favorites yet."}</div>
               )}
               {filteredItems.map((it) => (
-                <div key={it.kind === "file" ? it.file.id : it.folder.id} className="group grid grid-cols-[24px_minmax(0,1fr)_auto_auto] items-center gap-2 px-2 py-2 rounded transition-colors hover:bg-muted/50">
+                <div key={it.kind === "file" ? it.file.id : it.folder.id} className="group grid grid-cols-[24px_minmax(0,1fr)_auto_auto] items-center gap-2 px-2 py-2 rounded transition-colors hover:bg-muted/50" onMouseEnter={() => { if (it.kind === "file") { setPreview({ kind: "file", id: it.file.id }); } else { setPreview({ kind: "folder", id: it.folder.id }); } }}>
                   <button
                     onClick={() => it.kind === "file" ? toggleSelectFile(it.file.id) : toggleSelectFolder(it.folder.id)}
                     className="flex h-6 w-6 items-center justify-center rounded hover:bg-muted"
@@ -441,13 +493,17 @@ export default function Favorites() {
                 if (previewFile.type.startsWith("image/")) {
                   return <img src={previewFile.url} alt={previewFile.name} className="max-h-64 w-full rounded object-contain animate-in fade-in-0 duration-200" />
                 }
-                if (previewFile.type.startsWith("text/") || previewFile.type.includes("svg")) {
+                if (isTextFile(previewFile)) {
+                  if (previewLoading) {
+                    return <div className="text-sm text-muted-foreground">Loading preview…</div>
+                  }
+                  if (previewError) {
+                    return <div className="text-sm text-destructive">{previewError}</div>
+                  }
                   return (
-                    <iframe
-                      src={previewFile.url}
-                      title={previewFile.name}
-                      className="h-64 w-full rounded border animate-in fade-in-0 duration-200"
-                    />
+                    <pre className="h-64 w-full rounded border bg-muted/20 p-3 text-xs overflow-auto">
+                      {previewText ?? ""}
+                    </pre>
                   )
                 }
                 return (
@@ -527,7 +583,7 @@ export default function Favorites() {
                           </div>
                           <div className="text-xs text-muted-foreground">{formatBytes(f.size)}</div>
                           <div className="flex items-center gap-1 justify-end">
-                            <Button size="sm" variant="outline" onClick={() => { setFolderContextId(previewFolder.id); setPreview({ kind: "file", id: f.id }); }}>View</Button>
+                            <Button size="sm" variant="outline" onClick={() => { setFolderContextId(previewFolder!.id); setPreview({ kind: "file", id: f.id }); }}>View</Button>
                             <Button size="sm" variant="outline" onClick={() => download(f.id)}>Download</Button>
                           </div>
                         </div>

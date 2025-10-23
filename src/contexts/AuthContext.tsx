@@ -18,7 +18,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     // Listen for auth store changes
-    const unsubscribe = pb.authStore.onChange((token, model) => {
+    const unsubscribe = pb.authStore.onChange((_token, model) => {
       setUser(model);
     });
 

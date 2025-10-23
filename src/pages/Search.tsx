@@ -1,6 +1,4 @@
-import React, { useMemo, useState } from "react"
-import { Input } from "@/components/ui/input"
-import { Button } from "@/components/ui/button"
+import { useMemo, useState } from "react"
 import { SearchIcon, FileIcon, TrashIcon, StarIcon } from "lucide-react"
 import { usePocketBase } from "@/services/pocketbase-store"
 import type { ManagedFile, Folder } from "@/services/pocketbase-store"

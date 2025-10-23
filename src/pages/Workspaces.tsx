@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useRef } from "react"
+import { useMemo, useState, useRef } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -42,23 +42,10 @@ function formatBytes(bytes: number) {
 
 // Add remove workspace action with confirm & recursive deletion
 
-// Utility to collect all descendant folder ids starting from a given parent
-function collectDescendantFolderIds(all: Folder[], parentId: string): string[] {
-  const result: string[] = []
-  const stack = [parentId]
-  while (stack.length) {
-    const pid = stack.pop()!
-    const children = all.filter(f => f.parentId === pid)
-    for (const child of children) {
-      result.push(child.id)
-      stack.push(child.id)
-    }
-  }
-  return result
-}
+
 
 export default function Workspaces() {
-  const { files, folders, setFiles, setFolders, trash, setTrash, toggleFileFavorite: toggleFileFavoritePB, moveFileToTrash: moveFileToTrashPB, moveFolderToTrash: moveFolderToTrashPB } = usePocketBase()
+  const { files, folders, setFiles, setFolders, toggleFileFavorite: toggleFileFavoritePB, moveFileToTrash: moveFileToTrashPB, moveFolderToTrash: moveFolderToTrashPB } = usePocketBase()
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string | null>(null)
   const [viewMode, setViewMode] = useState<"grid" | "detail">("grid")
   const [searchQuery, setSearchQuery] = useState("")
@@ -714,7 +701,7 @@ function TeamSection() {
       reviewer: m.email,
     }))
   }, [filtered])
-  const tableKey = useMemo(() => `${filtered.map(m => m.id).join(',')}-${query}`, [filtered, query])
+
 
   return (
     <div className="rounded border p-3">
@@ -826,7 +813,7 @@ function TasksSection() {
       reviewer: "",
     }))
   }, [filtered])
-  const tableKey = useMemo(() => `${filtered.map(t => t.id).join(',')}-${query}`, [filtered, query])
+
 
   return (
     <div className="rounded border p-3">

@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useRef, useState } from "react"
+import React, { useCallback, useMemo, useRef, useState, useEffect } from "react"
 import { usePocketBase } from "@/services/pocketbase-store"
 import {
   TrashIcon,
@@ -84,16 +84,14 @@ function formatDateTime(ts: number | null | undefined) {
 }
 
 export default function MyFiles() {
-  const { files, folders, setFiles, setFolders, setTrash, isLoading, uploadFile, 
+  const { files, folders, setFiles, setFolders, uploadFile, 
     createFolder: createFolderPB,
     renameFile: renameFilePB,
     toggleFileFavorite: toggleFileFavoritePB,
-    deleteFile: deleteFilePB,
     moveFile: moveFilePB,
     renameFolder: renameFolderPB,
     toggleFolderFavorite: toggleFolderFavoritePB,
     moveFolder: moveFolderPB,
-    deleteFolderCascade: deleteFolderCascadePB,
     moveFileToTrash: moveFileToTrashPB,
     moveFolderToTrash: moveFolderToTrashPB,
     compressFolderToZip: compressFolderToZipPB,
@@ -108,6 +106,10 @@ export default function MyFiles() {
   const [renameValue, setRenameValue] = useState<string>("")
   const [infoOpenId, setInfoOpenId] = useState<string | null>(null)
   const [createFolderOpen, setCreateFolderOpen] = useState(false)
+  const [previewModalOpen, setPreviewModalOpen] = useState(false)
+  const [previewText, setPreviewText] = useState<string | null>(null)
+  const [previewLoading, setPreviewLoading] = useState(false)
+  const [previewError, setPreviewError] = useState<string | null>(null)
 
   // Folder actions state
   const [movingFolderId, setMovingFolderId] = useState<string | null>(null)
@@ -135,6 +137,10 @@ export default function MyFiles() {
     if (ext === "txt" || mime.startsWith("text/plain")) return "txt"
     if (ext === "csv" || mime.includes("csv")) return "csv"
     return "other"
+  }
+  const isTextFile = (f: ManagedFile) => {
+    const name = f.name.toLowerCase()
+    return f.type.startsWith("text/") || /\.(txt|md|csv|json|log|xml|html|svg)$/i.test(name)
   }
 
   const childFolders = useMemo(
@@ -543,7 +549,7 @@ export default function MyFiles() {
     const entries = z.archiveEntries ?? []
     const now = Date.now()
     for (const entry of entries) {
-      const orig = files.find((f) => f.id === entry.fileId)
+      const orig = files.find((x) => x.id === entry.fileId)
       if (!orig) continue
       const targetFolderId = ensurePath(rootFolderId, entry.path || [])
       const dup: ManagedFile = {
@@ -642,11 +648,40 @@ export default function MyFiles() {
   const onView = (id: string) => {
     setPreviewId(id)
     setFiles((prev) => prev.map((f) => f.id === id ? { ...f, openedAt: Date.now() } : f))
+    setPreviewModalOpen(true)
   }
 
   const previewFile = useMemo(() => files.find((f) => f.id === previewId) || null, [files, previewId])
 
+  useEffect(() => {
+    if (!previewFile || !isTextFile(previewFile)) {
+      setPreviewText(null)
+      setPreviewError(null)
+      setPreviewLoading(false)
+      return
+    }
+    let cancelled = false
+    setPreviewLoading(true)
+    setPreviewError(null)
+    fetch(previewFile.url)
+      .then(async (res) => {
+        if (!res.ok) throw new Error(`Failed to fetch: ${res.status}`)
+        const text = await res.text()
+        if (!cancelled) setPreviewText(text)
+      })
+      .catch((err) => {
+        if (!cancelled) setPreviewError(err?.message || "Failed to load preview")
+      })
+      .finally(() => {
+        if (!cancelled) setPreviewLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [previewFile])
+
   return (
+    <>
     <div className="flex w-full h-full overflow-hidden flex-1 flex-col gap-4 p-4 animate-in fade-in-0 duration-150">
       <div className="flex items-center justify-between">
         <h2 className="text-xl font-semibold flex items-center gap-2">
@@ -924,7 +959,7 @@ export default function MyFiles() {
               </div>
             ))}
             {filteredFiles.map((f) => (
-              <div key={f.id} className="group grid grid-cols-[24px_minmax(0,1fr)_auto_auto] items-center gap-2 px-2 py-2 rounded transition-colors hover:bg-muted/50">
+              <div key={f.id} className="group grid grid-cols-[24px_minmax(0,1fr)_auto_auto] items-center gap-2 px-2 py-2 rounded transition-colors hover:bg-muted/50" onMouseEnter={() => setPreviewId(f.id)}>
                 <button
                   onClick={() => toggleSelectFile(f.id)}
                   className="flex h-6 w-6 items-center justify-center rounded hover:bg-muted"
@@ -1093,12 +1128,24 @@ export default function MyFiles() {
             <div className="space-y-2 animate-in fade-in-0 slide-in-from-bottom-2 duration-200">
               <div className="text-sm">
                 <span className="font-medium">{previewFile.name}</span>
-                <span className="text-muted-foreground"> · {formatBytes(previewFile.size)}</span>
+                {previewFile.size != null && (
+                  <span className="text-muted-foreground"> · {formatBytes(previewFile.size)}</span>
+                )}
               </div>
-              {previewFile.type.startsWith("image/") ? (
-                <img src={previewFile.url} alt={previewFile.name} className="max-h-64 w-full rounded object-contain animate-in fade-in-0 duration-200" />
-              ) : previewFile.type.startsWith("text/") ? (
-                <iframe
+              {isTextFile(previewFile) ? (
+                <div className="rounded border bg-muted/20 p-2">
+                  {previewLoading ? (
+                    <div className="text-sm text-muted-foreground">Loading text preview…</div>
+                  ) : previewError ? (
+                    <div className="text-sm text-destructive">{previewError}</div>
+                  ) : previewText != null ? (
+                    <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words text-xs leading-5">{previewText}</pre>
+                  ) : (
+                    <div className="text-sm text-muted-foreground">No preview available</div>
+                  )}
+                </div>
+              ) : previewFile.type.startsWith("image/") ? (
+                <img
                   src={previewFile.url}
                   title={previewFile.name}
                   className="h-64 w-full rounded animate-in fade-in-0 duration-200"
@@ -1119,20 +1166,68 @@ export default function MyFiles() {
                     })}
                   </div>
                 </div>
+              ) : previewFile.type.startsWith("video/") ? (
+                <video controls src={previewFile.url} className="h-64 w-full rounded" />
+              ) : previewFile.type.startsWith("audio/") ? (
+                <audio controls src={previewFile.url} className="w-full" />
+              ) : previewFile.type.includes("pdf") ? (
+                <iframe src={previewFile.url} title={previewFile.name} className="h-64 w-full rounded" />
               ) : (
-                <a
-                  href={previewFile.url}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-sm text-primary underline"
-                >
-                  Open in new tab
-                </a>
+                <iframe src={previewFile.url} title={previewFile.name} className="h-64 w-full rounded" />
               )}
             </div>
           )}
         </div>
+        </div>
       </div>
-    </div>
+
+      <Dialog open={previewModalOpen} onOpenChange={setPreviewModalOpen}>
+        <DialogContent className="max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>{previewFile?.name ?? "Preview"}</DialogTitle>
+            <DialogDescription></DialogDescription>
+          </DialogHeader>
+          {previewFile && (
+            <div className="space-y-3">
+              {isTextFile(previewFile) ? (
+                previewLoading ? (
+                  <div className="text-sm text-muted-foreground">Loading…</div>
+                ) : previewError ? (
+                  <div className="text-sm text-destructive">{previewError}</div>
+                ) : (
+                  <pre className="max-h-screen w-full overflow-auto rounded border bg-muted/30 p-3 text-sm whitespace-pre-wrap break-words">{previewText}</pre>
+                )
+              ) : previewFile.type.startsWith("image/") ? (
+                <img src={previewFile.url} alt={previewFile.name} className="max-h-screen w-full object-contain rounded" />
+              ) : ((previewFile.type === "application/zip" || previewFile.name.toLowerCase().endsWith(".zip")) && previewFile.archiveEntries) ? (
+                <div className="max-h-screen overflow-auto rounded border">
+                  <div className="mb-2 text-xs text-muted-foreground">{previewFile.archiveEntries.length} items</div>
+                  <div className="divide-y">
+                    {previewFile.archiveEntries.map((entry, idx) => {
+                      const orig = files.find((x) => x.id === entry.fileId)
+                      const displayPath = [...entry.path, orig ? orig.name : "(missing file)"].join("/")
+                      return (
+                        <div key={`${entry.fileId}-${idx}`} className="flex items-center justify-between px-2 py-1 text-sm">
+                          <div className="truncate" title={displayPath}>{displayPath}</div>
+                          <div className="ml-2 shrink-0 text-muted-foreground">{orig ? formatBytes(orig.size) : "Unknown"}</div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              ) : previewFile.type.startsWith("video/") ? (
+                <video controls src={previewFile.url} className="h-96 w-full rounded" />
+              ) : previewFile.type.startsWith("audio/") ? (
+                <audio controls src={previewFile.url} className="w-full" />
+              ) : previewFile.type.includes("pdf") ? (
+                <iframe src={previewFile.url} title={previewFile.name} className="h-96 w-full rounded" />
+              ) : (
+                <iframe src={previewFile.url} title={previewFile.name} className="h-96 w-full rounded" />
+              )}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+    </>
   )
 }

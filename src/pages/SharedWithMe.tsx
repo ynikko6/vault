@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { EyeIcon, DownloadIcon, FileIcon, ImageIcon, XIcon, CheckSquareIcon, SquareIcon, PlusIcon, TrashIcon, FilterIcon, ShareIcon } from "lucide-react"
 import { Input } from "@/components/ui/input"
@@ -26,12 +26,7 @@ type SharedFile = {
 }
 
 export default function SharedWithMe() {
-  const [items, setItems] = useState<SharedFile[]>([
-    { id: "shared-1", name: "1.jpg", url: "/1.jpg", type: "image/jpeg", size: null, selected: false },
-    { id: "shared-2", name: "White Rock Emoji.png", url: "/White Rock Emoji.png", type: "image/png", size: null, selected: false },
-    { id: "shared-3", name: "wallpaper.jpg", url: "/wallpaper.jpg", type: "image/jpeg", size: null, selected: false },
-    { id: "shared-4", name: "vite.svg", url: "/vite.svg", type: "image/svg+xml", size: null, selected: false },
-  ])
+  const [items, setItems] = useState<SharedFile[]>([])
 
   useEffect(() => {
     let cancelled = false
@@ -73,6 +68,15 @@ export default function SharedWithMe() {
     return "other"
   }
 
+  const isTextFile = (it: { name: string; type: string }) => {
+    const name = (it.name || "").toLowerCase()
+    const ext = name.includes(".") ? name.split(".").pop()! : ""
+    const mime = (it.type || "").toLowerCase()
+    if (mime.startsWith("text/")) return true
+    const textExts = ["txt", "md", "json", "csv", "log", "xml", "yaml", "yml", "ini", "conf", "svg"]
+    return textExts.includes(ext)
+  }
+
   const filteredItems = useMemo(() => {
     const q = searchQuery.trim().toLowerCase()
     const matchesType = (it: SharedFile) =>
@@ -92,14 +96,41 @@ export default function SharedWithMe() {
     setItems(prev => prev.map(it => ids.has(it.id) ? { ...it, selected: !allSelected } : it))
   }
 
-  const downloadSelected = () => {
-    const selectedIds = items.filter(it => it.selected).map(it => it.id)
-    selectedIds.forEach(download)
-  }
+
 
   const [previewId, setPreviewId] = useState<string | null>(null)
   const previewFile = useMemo(() => items.find((i) => i.id === previewId) || null, [items, previewId])
   const { setFiles } = usePocketBase()
+
+  // Inline text preview state
+  const [previewText, setPreviewText] = useState<string | null>(null)
+  const [previewLoading, setPreviewLoading] = useState(false)
+  const [previewError, setPreviewError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!previewFile || !isTextFile(previewFile)) {
+      setPreviewText(null)
+      setPreviewError(null)
+      setPreviewLoading(false)
+      return
+    }
+    let cancelled = false
+    setPreviewLoading(true)
+    setPreviewError(null)
+    fetch(previewFile.url)
+      .then(async (res) => {
+        if (!res.ok) throw new Error(`Failed to fetch: ${res.status}`)
+        const text = await res.text()
+        if (!cancelled) setPreviewText(text)
+      })
+      .catch((err) => {
+        if (!cancelled) setPreviewError(err?.message || "Failed to load preview")
+      })
+      .finally(() => {
+        if (!cancelled) setPreviewLoading(false)
+      })
+    return () => { cancelled = true }
+  }, [previewFile])
 
   const download = (id: string) => {
     const it = items.find((i) => i.id === id)
@@ -133,26 +164,7 @@ export default function SharedWithMe() {
     setFiles(prev => [...newFiles, ...prev])
   }
 
-  const addToMyFiles = (id: string) => {
-    const it = items.find(i => i.id === id)
-    if (!it) return
-    const now = Date.now()
-    const f: ManagedFile = {
-      id: `sharedcopy-${now}-${Math.random().toString(36).slice(2)}`,
-      name: it.name,
-      size: it.size ?? 0,
-      type: it.type,
-      url: it.url,
-      lastModified: now,
-      folderId: null,
-      selected: false,
-      favorite: false,
-      createdAt: now,
-      openedAt: null,
-      nameModifiedAt: null,
-    }
-    setFiles(prev => [f, ...prev])
-  }
+
 
   const deleteSelected = () => {
     const delIds = new Set(items.filter(it => it.selected).map(it => it.id))
@@ -162,10 +174,7 @@ export default function SharedWithMe() {
     if (previewId && delIds.has(previewId)) setPreviewId(null)
   }
 
-  const deleteItem = (id: string) => {
-    setItems(prev => prev.filter(it => it.id !== id))
-    if (previewId === id) setPreviewId(null)
-  }
+
 
   return (
     <div className="flex w-full flex-1 flex-col gap-4 p-4 animate-in fade-in-0 duration-150">
@@ -267,7 +276,7 @@ export default function SharedWithMe() {
                 <div className="p-4 text-sm text-muted-foreground">{searchQuery ? "No matching shared files." : "No shared files yet."}</div>
               )}
               {filteredItems.map((it) => (
-                <div key={it.id} className="group grid grid-cols-[24px_minmax(0,1fr)_auto_auto] items-center gap-2 px-2 py-2 rounded transition-colors hover:bg-muted/50">
+                <div key={it.id} className="group grid grid-cols-[24px_minmax(0,1fr)_auto_auto] items-center gap-2 px-2 py-2 rounded transition-colors hover:bg-muted/50" onMouseEnter={() => setPreviewId(it.id)}>
                   <button
                     onClick={() => toggleSelect(it.id)}
                     className="flex h-6 w-6 items-center justify-center rounded hover:bg-muted"
@@ -325,12 +334,16 @@ export default function SharedWithMe() {
               </div>
               {previewFile.type.startsWith("image/") ? (
                 <img src={previewFile.url} alt={previewFile.name} className="max-h-64 w-full rounded object-contain animate-in fade-in-0 duration-200" />
-              ) : previewFile.type.startsWith("text/") || previewFile.type.includes("svg") ? (
-                <iframe
-                  src={previewFile.url}
-                  title={previewFile.name}
-                  className="h-64 w-full rounded border animate-in fade-in-0 duration-200"
-                />
+              ) : isTextFile(previewFile) ? (
+                previewLoading ? (
+                  <div className="text-sm text-muted-foreground">Loading preview…</div>
+                ) : previewError ? (
+                  <div className="text-sm text-destructive">{previewError}</div>
+                ) : previewText != null ? (
+                  <pre className="h-64 w-full rounded border p-2 overflow-auto whitespace-pre-wrap">{previewText}</pre>
+                ) : (
+                  <div className="text-sm text-muted-foreground">No preview available.</div>
+                )
               ) : (
                 <a
                   href={previewFile.url}

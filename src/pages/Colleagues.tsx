@@ -1,12 +1,12 @@
-import React, { useMemo, useState } from "react"
+import { useMemo, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover"
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu"
-import { UsersIcon, MailIcon, UserPlusIcon, TrashIcon, MoreVerticalIcon, FilterIcon, Share2Icon, FolderIcon, FileIcon } from "lucide-react"
+import { UsersIcon, MailIcon, UserPlusIcon, TrashIcon, MoreVerticalIcon, Share2Icon, FolderIcon, FileIcon } from "lucide-react"
 import { usePocketBase } from "@/services/pocketbase-store"
-import type { ManagedFile, Colleague, WorkspaceInvite, ShareEntry } from "@/services/pocketbase-store"
+import type { ManagedFile, Colleague, ShareEntry } from "@/services/pocketbase-store"
 
 export default function ColleaguesPage() {
 
